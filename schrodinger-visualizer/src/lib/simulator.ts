@@ -20,7 +20,7 @@ import {
   probabilityDensity,
 } from "./complex";
 import { fft } from "./fft";
-import { buildPotential, PotentialType, defaultWavePacketParams } from "./potentials";
+import { buildPotential, buildBoundaryMask, PotentialType, defaultWavePacketParams } from "./potentials";
 
 // ── Simulation parameters ───────────────────────────────────────────
 
@@ -62,6 +62,8 @@ export interface SimulatorState {
   expV_half: ComplexArray;
   /** Full-step kinetic propagator: e^{-iT dt} */
   expT: ComplexArray;
+  /** Hard boundary mask: psi is zeroed where mask[i] === 0 (for infinite walls) */
+  boundaryMask: Float64Array | null;
   /** Current time */
   time: number;
   /** Config snapshot */
@@ -129,11 +131,23 @@ export function initSimulator(config: SimulationConfig): SimulatorState {
     expT.im[i] = Math.sin(phaseT);
   }
 
+  // Hard boundary mask for infinite walls
+  const boundaryMask = buildBoundaryMask(potential, { x, L });
+
   // Initial wave packet
   const wp = defaultWavePacketParams(potential, L);
   const psi = gaussianWavePacket(x, wp.x0, wp.k0, wp.sigma, dx);
 
-  return { x, k, dx, psi, V, expV_half, expT, time: 0, config };
+  // Apply mask to initial state
+  if (boundaryMask) {
+    for (let i = 0; i < N; i++) {
+      psi.re[i] *= boundaryMask[i];
+      psi.im[i] *= boundaryMask[i];
+    }
+    normalize(psi, dx);
+  }
+
+  return { x, k, dx, psi, V, expV_half, expT, boundaryMask, time: 0, config };
 }
 
 /**
@@ -150,6 +164,15 @@ export function step(state: SimulatorState): void {
 
   // Half-step in V
   multiplyInPlace(state.psi, state.expV_half);
+
+  // Enforce hard boundary conditions (infinite walls)
+  if (state.boundaryMask) {
+    const n = state.psi.re.length;
+    for (let i = 0; i < n; i++) {
+      state.psi.re[i] *= state.boundaryMask[i];
+      state.psi.im[i] *= state.boundaryMask[i];
+    }
+  }
 
   state.time += state.config.dt;
 }

@@ -81,7 +81,7 @@ export const POTENTIAL_CATALOG: PotentialInfo[] = [
 
 // ── Potential constructors ──────────────────────────────────────────
 
-const WALL_HEIGHT = 1e4; // "infinite" wall height for numerical purposes
+const WALL_HEIGHT = 1e6; // "infinite" wall height for numerical purposes
 
 export function buildPotential(
   type: PotentialType,
@@ -180,6 +180,31 @@ export function buildPotential(
   }
 
   return V;
+}
+
+/**
+ * Build a hard boundary mask for potentials with truly infinite walls.
+ * Returns a Float64Array where mask[i] = 1 inside the allowed region and
+ * mask[i] = 0 in the forbidden (infinite potential) region. Returns null
+ * for potentials that don't need hard boundaries.
+ *
+ * After each time step, psi is multiplied element-wise by this mask to
+ * enforce the Dirichlet boundary condition psi = 0 at infinite walls.
+ */
+export function buildBoundaryMask(
+  type: PotentialType,
+  params: PotentialParams
+): Float64Array | null {
+  if (type !== "infiniteSquareWell") return null;
+
+  const { x, L } = params;
+  const n = x.length;
+  const mask = new Float64Array(n);
+  const wallPos = L * 0.45;
+  for (let i = 0; i < n; i++) {
+    mask[i] = Math.abs(x[i]) <= wallPos ? 1 : 0;
+  }
+  return mask;
 }
 
 /**
