@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import Link from "next/link";
 import WavefunctionCanvas from "@/components/WavefunctionCanvas";
 import Controls from "@/components/Controls";
 import {
@@ -12,6 +13,7 @@ import {
   getDisplayData,
   DisplayData,
 } from "@/lib/simulator";
+import { defaultWavePacketParams } from "@/lib/potentials";
 
 export default function Home() {
   const [config, setConfig] = useState<SimulationConfig>(DEFAULT_CONFIG);
@@ -48,11 +50,18 @@ export default function Home() {
     []
   );
 
-  // Initialize on mount and when potential changes
+  // Initialize on mount and when potential or wave packet changes
   useEffect(() => {
     resetSimulation(config);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.potential, resetSimulation]);
+  }, [
+    config.potential,
+    config.wavePacket.type,
+    config.wavePacket.x0,
+    config.wavePacket.k0,
+    config.wavePacket.sigma,
+    resetSimulation,
+  ]);
 
   // Responsive canvas sizing
   useEffect(() => {
@@ -89,17 +98,34 @@ export default function Home() {
   }, [isRunning]);
 
   const handleConfigChange = (newConfig: SimulationConfig) => {
+    // When potential changes, reset wave packet params to good defaults
+    if (newConfig.potential !== config.potential) {
+      const wp = defaultWavePacketParams(newConfig.potential, newConfig.L);
+      newConfig = {
+        ...newConfig,
+        wavePacket: {
+          ...newConfig.wavePacket,
+          x0: wp.x0,
+          k0: wp.k0,
+          sigma: wp.sigma,
+        },
+      };
+    }
+
     setConfig(newConfig);
-    // If potential changed, reset is handled by the useEffect above.
-    // For other changes (dt, stepsPerFrame), update the live state's config
+
+    // For changes that don't need a full reset (dt, stepsPerFrame),
+    // update the live state's config in-place
     if (
       simRef.current &&
-      newConfig.potential === config.potential
+      newConfig.potential === config.potential &&
+      newConfig.wavePacket.type === config.wavePacket.type &&
+      newConfig.wavePacket.x0 === config.wavePacket.x0 &&
+      newConfig.wavePacket.k0 === config.wavePacket.k0 &&
+      newConfig.wavePacket.sigma === config.wavePacket.sigma
     ) {
-      // Rebuild propagators with new dt
       if (newConfig.dt !== config.dt) {
         const newSim = initSimulator(newConfig);
-        // Preserve the current wavefunction
         newSim.psi = simRef.current.psi;
         newSim.time = simRef.current.time;
         simRef.current = newSim;
@@ -123,14 +149,22 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4">
-        <h1 className="text-xl font-bold text-gray-100">
-          Schrodinger Equation Visualizer
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          1D time-dependent Schrodinger equation &mdash; split-operator
-          Fourier method
-        </p>
+      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-100">
+            Schrodinger Equation Visualizer
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            1D time-dependent Schrodinger equation &mdash; split-operator
+            Fourier method
+          </p>
+        </div>
+        <Link
+          href="/derivation"
+          className="px-4 py-2 rounded-md text-sm bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors"
+        >
+          Derivation: Harmonic Oscillator
+        </Link>
       </header>
 
       {/* Main content */}

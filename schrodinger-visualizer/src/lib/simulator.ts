@@ -22,6 +22,53 @@ import {
 import { fft } from "./fft";
 import { buildPotential, buildBoundaryMask, PotentialType, defaultWavePacketParams } from "./potentials";
 
+// ── Wave packet types ───────────────────────────────────────────────
+
+export type WavePacketType =
+  | "gaussian"
+  | "planeWave"
+  | "positionDelta"
+  | "momentumDelta";
+
+export interface WavePacketInfo {
+  type: WavePacketType;
+  label: string;
+  description: string;
+}
+
+export const WAVE_PACKET_CATALOG: WavePacketInfo[] = [
+  {
+    type: "gaussian",
+    label: "Gaussian",
+    description: "Standard Gaussian wave packet with tunable position, momentum, and width",
+  },
+  {
+    type: "planeWave",
+    label: "Plane Wave",
+    description: "Uniform amplitude with definite momentum e^{ikx} (windowed to fit the grid)",
+  },
+  {
+    type: "positionDelta",
+    label: "\u03B4(x) Position",
+    description: "Narrow spike in position space \u2014 maximally uncertain momentum",
+  },
+  {
+    type: "momentumDelta",
+    label: "\u03B4(k) Momentum",
+    description: "Narrow spike in momentum space \u2014 nearly uniform in position, definite k",
+  },
+];
+
+export interface WavePacketConfig {
+  type: WavePacketType;
+  /** Mean position */
+  x0: number;
+  /** Mean wave number (momentum / \u0127) */
+  k0: number;
+  /** Width (std dev) of the Gaussian envelope */
+  sigma: number;
+}
+
 // ── Simulation parameters ───────────────────────────────────────────
 
 export interface SimulationConfig {
@@ -35,6 +82,8 @@ export interface SimulationConfig {
   stepsPerFrame: number;
   /** Selected potential */
   potential: PotentialType;
+  /** Wave packet initial state */
+  wavePacket: WavePacketConfig;
 }
 
 export const DEFAULT_CONFIG: SimulationConfig = {
@@ -43,6 +92,10 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   dt: 0.01,
   stepsPerFrame: 4,
   potential: "barrier",
+  wavePacket: {
+    type: "gaussian",
+    ...defaultWavePacketParams("barrier", 15),
+  },
 };
 
 // ── Simulator state ─────────────────────────────────────────────────
@@ -70,9 +123,11 @@ export interface SimulatorState {
   config: SimulationConfig;
 }
 
+// ── Wave packet constructors ────────────────────────────────────────
+
 /**
- * Build a Gaussian wave packet:
- *   ψ(x) = (2πσ²)^{-1/4} exp(-(x-x0)² / 4σ²) exp(i k0 x)
+ * Gaussian wave packet:
+ *   ψ(x) ∝ exp(-(x-x0)² / 4σ²) exp(i k0 x)
  */
 function gaussianWavePacket(
   x: Float64Array,
@@ -92,6 +147,81 @@ function gaussianWavePacket(
   }
   normalize(psi, dx);
   return psi;
+}
+
+/**
+ * Windowed plane wave: e^{ikx} with a broad cosine window to avoid
+ * hard edges (which would create spurious high-frequency ringing).
+ */
+function planeWavePacket(
+  x: Float64Array,
+  k0: number,
+  dx: number,
+  L: number
+): ComplexArray {
+  const n = x.length;
+  const psi = createComplexArray(n);
+  const windowWidth = L * 0.85;
+  for (let i = 0; i < n; i++) {
+    // Tukey-style cosine window
+    const r = Math.abs(x[i]) / windowWidth;
+    const window = r < 1 ? 0.5 * (1 + Math.cos(Math.PI * r)) : 0;
+    psi.re[i] = window * Math.cos(k0 * x[i]);
+    psi.im[i] = window * Math.sin(k0 * x[i]);
+  }
+  normalize(psi, dx);
+  return psi;
+}
+
+/**
+ * Position-space delta: a very narrow Gaussian (sigma_narrow) centered at x0
+ * with carrier momentum k0. This approximates δ(x - x0) · e^{ik0 x}.
+ */
+function positionDelta(
+  x: Float64Array,
+  x0: number,
+  k0: number,
+  dx: number,
+  L: number
+): ComplexArray {
+  const sigma = L * 0.008; // very narrow
+  return gaussianWavePacket(x, x0, k0, sigma, dx);
+}
+
+/**
+ * Momentum-space delta: a very broad Gaussian in position space (= narrow
+ * in k-space), giving nearly definite momentum k0 centered at x0.
+ */
+function momentumDelta(
+  x: Float64Array,
+  x0: number,
+  k0: number,
+  dx: number,
+  L: number
+): ComplexArray {
+  const sigma = L * 0.4; // very broad
+  return gaussianWavePacket(x, x0, k0, sigma, dx);
+}
+
+/**
+ * Build a wave packet from a WavePacketConfig.
+ */
+function buildWavePacket(
+  wp: WavePacketConfig,
+  x: Float64Array,
+  dx: number,
+  L: number
+): ComplexArray {
+  switch (wp.type) {
+    case "gaussian":
+      return gaussianWavePacket(x, wp.x0, wp.k0, wp.sigma, dx);
+    case "planeWave":
+      return planeWavePacket(x, wp.k0, dx, L);
+    case "positionDelta":
+      return positionDelta(x, wp.x0, wp.k0, dx, L);
+    case "momentumDelta":
+      return momentumDelta(x, wp.x0, wp.k0, dx, L);
+  }
 }
 
 /**
@@ -135,8 +265,7 @@ export function initSimulator(config: SimulationConfig): SimulatorState {
   const boundaryMask = buildBoundaryMask(potential, { x, L });
 
   // Initial wave packet
-  const wp = defaultWavePacketParams(potential, L);
-  const psi = gaussianWavePacket(x, wp.x0, wp.k0, wp.sigma, dx);
+  const psi = buildWavePacket(config.wavePacket, x, dx, L);
 
   // Apply mask to initial state
   if (boundaryMask) {

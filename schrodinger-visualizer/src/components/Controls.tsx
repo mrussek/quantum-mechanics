@@ -1,7 +1,11 @@
 "use client";
 
 import { POTENTIAL_CATALOG, PotentialType } from "@/lib/potentials";
-import type { SimulationConfig } from "@/lib/simulator";
+import {
+  WAVE_PACKET_CATALOG,
+  type SimulationConfig,
+  type WavePacketType,
+} from "@/lib/simulator";
 
 interface Props {
   config: SimulationConfig;
@@ -69,6 +73,106 @@ export default function Controls({
             {selectedInfo.description}
           </p>
         )}
+      </section>
+
+      {/* Wave packet type */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-2">
+          Initial State ψ(x, 0)
+        </h3>
+        <div className="grid grid-cols-1 gap-1.5">
+          {WAVE_PACKET_CATALOG.map((wp) => (
+            <button
+              key={wp.type}
+              onClick={() =>
+                onConfigChange({
+                  ...config,
+                  wavePacket: {
+                    ...config.wavePacket,
+                    type: wp.type as WavePacketType,
+                  },
+                })
+              }
+              className={`text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                config.wavePacket.type === wp.type
+                  ? "bg-violet-600 text-white"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+              }`}
+            >
+              {wp.label}
+            </button>
+          ))}
+        </div>
+        {(() => {
+          const info = WAVE_PACKET_CATALOG.find(
+            (wp) => wp.type === config.wavePacket.type
+          );
+          return info ? (
+            <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+              {info.description}
+            </p>
+          ) : null;
+        })()}
+      </section>
+
+      {/* Wave packet parameters */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-2">
+          Wave Packet Parameters
+        </h3>
+        <div className="flex flex-col gap-3">
+          {/* x0 — mean position (not for plane wave) */}
+          {config.wavePacket.type !== "planeWave" && (
+            <SliderParam
+              label="x\u2080 (position)"
+              value={config.wavePacket.x0}
+              min={-config.L * 0.9}
+              max={config.L * 0.9}
+              step={0.1}
+              format={(v) => v.toFixed(1)}
+              onChange={(v) =>
+                onConfigChange({
+                  ...config,
+                  wavePacket: { ...config.wavePacket, x0: v },
+                })
+              }
+            />
+          )}
+
+          {/* k0 — mean momentum */}
+          <SliderParam
+            label="k\u2080 (momentum)"
+            value={config.wavePacket.k0}
+            min={-15}
+            max={15}
+            step={0.5}
+            format={(v) => v.toFixed(1)}
+            onChange={(v) =>
+              onConfigChange({
+                ...config,
+                wavePacket: { ...config.wavePacket, k0: v },
+              })
+            }
+          />
+
+          {/* sigma — width (only for gaussian) */}
+          {config.wavePacket.type === "gaussian" && (
+            <SliderParam
+              label="\u03C3 (width)"
+              value={config.wavePacket.sigma}
+              min={config.L * 0.01}
+              max={config.L * 0.3}
+              step={0.05}
+              format={(v) => v.toFixed(2)}
+              onChange={(v) =>
+                onConfigChange({
+                  ...config,
+                  wavePacket: { ...config.wavePacket, sigma: v },
+                })
+              }
+            />
+          )}
+        </div>
       </section>
 
       {/* Playback controls */}
@@ -226,5 +330,41 @@ function Toggle({
         {label}
       </span>
     </label>
+  );
+}
+
+function SliderParam({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <div className="flex justify-between text-xs text-gray-400 mb-1">
+        <span>{label}</span>
+        <span className="text-gray-300 font-medium">{format(value)}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full accent-violet-500"
+      />
+    </div>
   );
 }
